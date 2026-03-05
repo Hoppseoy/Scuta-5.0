@@ -491,6 +491,12 @@ async function startServer() {
         auditDenied('typing', actor, 'room mismatch');
         return;
       }
+      const settings = roomSettings.get(actor.roomId);
+      const owner = roomOwners.get(actor.roomId);
+      if (settings?.isBroadcastOnly && actor.username !== owner) {
+        auditDenied('typing', actor, 'broadcast-only restriction');
+        return;
+      }
       socket.to(actor.roomId).emit('user_typing', { username: actor.username, pseudonym: obfuscate(actor.username), isTyping: Boolean(data.isTyping) });
     });
 
