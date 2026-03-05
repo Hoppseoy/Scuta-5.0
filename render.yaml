@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: scuta-chat
+    env: node
+    plan: free
+    buildCommand: npm ci --omit=optional && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=256
+      - key: SCUTA_ALLOWED_ORIGINS
+        sync: false
