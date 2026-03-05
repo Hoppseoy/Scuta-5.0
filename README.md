@@ -112,3 +112,30 @@ If you want to run it on your own computer to test:
 **This software is provided for educational and lawful communication purposes only.** 
 
 The creator of Scuta is not responsible for any misuse of this application. By using this software, you agree that you will not use it to facilitate, plan, or engage in any illegal activities. The encryption provided by this tool is designed to protect user privacy from unwarranted surveillance and data harvesting, not to shield unlawful behavior. The user assumes all liability and responsibility for the content they transmit using this platform.
+
+## 🔐 Security Hardening (Kickoff)
+
+Recent baseline hardening work introduces:
+- **Server-authoritative socket authorization** for privileged events.
+- **Production HTTPS enforcement** (requests are rejected unless HTTPS/forwarded HTTPS is detected).
+- **Configurable socket origin allowlist** via `SCUTA_ALLOWED_ORIGINS` (comma-separated list).
+
+Example:
+
+```bash
+SCUTA_ALLOWED_ORIGINS="https://scuta.example,https://ops-terminal.example" npm run dev
+```
+
+In production, avoid wildcard origins and ensure TLS termination correctly sets `X-Forwarded-Proto: https`.
+
+
+### Advanced Security Controls
+- Device identity enrollment with signed join proofs (ECDSA P-256).
+- Replay protection for join events (nonce + timestamp window).
+- Envelope encryption of persisted ciphertext with key destruction on panic/rekey/burn.
+- Strict runtime headers (CSP, HSTS, frame denial, no-referrer).
+
+Security docs:
+- `docs/security/THREAT-MODEL.md`
+- `docs/security/HARDENED-ENDPOINT-PROFILE.md`
+- `docs/security/ASSURANCE-PROGRAM.md`

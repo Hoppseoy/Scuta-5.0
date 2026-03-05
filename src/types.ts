@@ -13,4 +13,5 @@ export interface UserSession {
   roomId: string;
   passphraseKey: CryptoKey;
   isOwner: boolean;
+  devicePseudonym?: string;
 }
