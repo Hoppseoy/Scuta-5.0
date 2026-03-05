@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Message, UserSession } from './types';
 import { deriveKey, encryptMessage, decryptMessage, getFingerprint } from './utils/crypto';
+import { getOrCreateIdentity, signJoinProof } from './utils/identity';
 import { Lock, Send, User, Key, Hash, Shield, MessageSquare, LogOut, ShieldAlert, Trash2, AlertTriangle, ChevronRight, Users, Crown, AlertOctagon, Terminal, Clock, Camera, Mic, Settings, EyeOff, Radio, Volume2, VolumeX } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -13,6 +14,7 @@ const socket: Socket = io();
 const ALPHANUMERIC_REGEX = /^[a-zA-Z0-9]+$/;
 // Regex for passphrase (allows alphanumeric + common symbols)
 const PASSPHRASE_REGEX = /^[a-zA-Z0-9!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]+$/;
+const SESSION_STORAGE_KEY = 'scuta.session.v1';
 
 const INITIAL_DECOY_DATA = [
   ['Category', 'Q1 Actual', 'Q2 Actual', 'Q3 Projected', 'Q4 Projected', 'YTD', 'Status'],
@@ -116,9 +118,47 @@ export default function App() {
   } | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const sessionRef = useRef<UserSession | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+
+  const getSessionStorageId = (username: string, roomId: string) => `${SESSION_STORAGE_KEY}:${username}:${roomId}`;
+
+  const saveSessionSnapshot = (snapshot: { username: string; roomId: string; passphrase: string }) => {
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(snapshot));
+  };
+
+  const clearSessionSnapshot = () => {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+  };
+
+  const mergeMessagesById = (left: Message[], right: Message[]) => {
+    const merged = new Map<string, Message>();
+    [...left, ...right].forEach((msg) => {
+      merged.set(msg.id, msg);
+    });
+    return Array.from(merged.values()).sort((a, b) => a.timestamp - b.timestamp);
+  };
+
+  const persistRoomMessages = (activeSession: UserSession, nextMessages: Message[]) => {
+    const key = getSessionStorageId(activeSession.username, activeSession.roomId);
+    localStorage.setItem(key, JSON.stringify(nextMessages.slice(-400)));
+  };
+
+  const appendSystemLog = (content: string) => {
+    setMessages((prev) => {
+      const next = [...prev, {
+        id: `system-${crypto.randomUUID()}`,
+        sender: 'SYSTEM',
+        text: content,
+        timestamp: Date.now(),
+        type: 'text',
+      }];
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -261,35 +301,88 @@ export default function App() {
     scrollToBottom();
   }, [messages]);
 
+
   useEffect(() => {
-    socket.on('connect', () => {
-      setIsConnected(true);
-    });
+    sessionRef.current = session;
+  }, [session]);
 
-    socket.on('disconnect', () => {
-      setIsConnected(false);
-    });
+  useEffect(() => {
+    let cancelled = false;
 
-    return () => {
-      socket.off('connect');
-      socket.off('disconnect');
+    const loadPersistedSession = async () => {
+      const stored = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (!stored || sessionRef.current) return;
+
+      try {
+        const parsed = JSON.parse(stored) as { username: string; roomId: string; passphrase: string };
+        if (!parsed.username || !parsed.roomId || !parsed.passphrase) return;
+
+        const key = await deriveKey(parsed.passphrase, parsed.roomId);
+        if (cancelled) return;
+
+        setUsername(parsed.username);
+        setRoomId(parsed.roomId);
+        setPassphrase(parsed.passphrase);
+        setSession({
+          username: parsed.username,
+          roomId: parsed.roomId,
+          passphraseKey: key,
+          isOwner: false,
+        });
+        getFingerprint(key).then(setFingerprint);
+        setShowWelcome(false);
+      } catch (err) {
+        console.error('Failed to restore persisted session', err);
+        clearSessionSnapshot();
+      }
     };
-  }, []);
 
-  useEffect(() => {
-    if (!session) return;
+    const joinWithIdentity = async (activeSession: UserSession, action: 'join' | 'create' = 'join') => {
+      const identity = await getOrCreateIdentity();
+      const timestamp = Date.now();
+      const nonce = crypto.randomUUID();
+      const proof = await signJoinProof(identity, activeSession.roomId, activeSession.username, timestamp, nonce);
+
+      socket.emit('join_room', {
+        roomId: activeSession.roomId,
+        username: activeSession.username,
+        action,
+        identity: {
+          deviceId: identity.deviceId,
+          publicKeyJwk: identity.publicKeyJwk,
+          timestamp,
+          nonce,
+          proof,
+        },
+      }, (response: any) => {
+        if (response && !response.success) {
+          setJoinError(response.error || 'Failed to join room.');
+          return;
+        }
+
+        setSession((prev) => prev ? { ...prev, isOwner: Boolean(response?.isOwner), devicePseudonym: response?.pseudonym } : prev);
+        appendSystemLog('[YOU] HAS ENTERED THE SECTOR');
+      });
+    };
 
     const handleConnect = () => {
-      // Re-join room on reconnect
-      socket.emit('join_room', { roomId: session.roomId, username: session.username, action: 'join' });
+      setIsConnected(true);
+      const active = sessionRef.current;
+      if (active) {
+        joinWithIdentity(active, 'join').catch((err) => console.error('Rejoin failed:', err));
+      }
+    };
+
+    const handleDisconnect = () => {
+      setIsConnected(false);
     };
 
     const handleReceiveMessage = async (data: any) => {
-      if (data.roomId !== session.roomId) return;
+      const active = sessionRef.current;
+      if (!active || data.roomId !== active.roomId) return;
 
       try {
-        const decryptedText = await decryptMessage(data.encryptedText, session.passphraseKey);
-        
+        const decryptedText = await decryptMessage(data.encryptedText, active.passphraseKey);
         const newMsg: Message = {
           id: data.id,
           sender: data.sender,
@@ -298,11 +391,13 @@ export default function App() {
         };
 
         setMessages((prev) => {
-          if (prev.some(m => m.id === newMsg.id)) return prev;
-          if (soundEnabledRef.current && data.sender !== session.username) {
+          if (prev.some((m) => m.id === newMsg.id)) return prev;
+          if (soundEnabledRef.current && data.sender !== active.username) {
             playTacticalBeep();
           }
-          return [...prev, newMsg];
+          const next = [...prev, newMsg];
+          persistRoomMessages(active, next);
+          return next;
         });
       } catch (err) {
         console.error('Failed to decrypt message:', err);
@@ -310,10 +405,13 @@ export default function App() {
     };
 
     const handleMessageHistory = async (history: any[]) => {
+      const active = sessionRef.current;
+      if (!active) return;
+
       const decryptedMessages: Message[] = [];
       for (const data of history) {
         try {
-          const decryptedText = await decryptMessage(data.encryptedText, session.passphraseKey);
+          const decryptedText = await decryptMessage(data.encryptedText, active.passphraseKey);
           decryptedMessages.push({
             id: data.id,
             sender: data.sender,
@@ -324,11 +422,27 @@ export default function App() {
           console.error('Failed to decrypt history message:', err);
         }
       }
-      setMessages(decryptedMessages);
+
+      setMessages((prev) => {
+        const merged = mergeMessagesById(prev, decryptedMessages);
+        persistRoomMessages(active, merged);
+        return merged;
+      });
     };
 
     const handleActiveUsers = (users: string[]) => {
-      setActiveUsers(users);
+      const active = sessionRef.current;
+      if (!active) {
+        setActiveUsers(users);
+        return;
+      }
+      const deduped = Array.from(new Set(users));
+      const sorted = deduped.sort((a, b) => {
+        if (a === active.username) return -1;
+        if (b === active.username) return 1;
+        return a.localeCompare(b);
+      });
+      setActiveUsers(sorted);
     };
 
     const handleRoomPanicked = () => {
@@ -346,11 +460,12 @@ export default function App() {
       setSession(prev => prev ? { ...prev, isOwner: prev.username === newOwner } : null);
     };
 
-    const handleUserTyping = (data: { username: string, isTyping: boolean }) => {
+    const handleUserTyping = (data: { pseudonym?: string, username?: string, isTyping: boolean }) => {
+      const label = data.username || data.pseudonym || 'unknown';
       setTypingUsers(prev => {
         const next = new Set(prev);
-        if (data.isTyping) next.add(data.username);
-        else next.delete(data.username);
+        if (data.isTyping) next.add(label);
+        else next.delete(label);
         return next;
       });
     };
@@ -366,16 +481,19 @@ export default function App() {
     const handleKicked = () => {
       setSession(null);
       setMessages([]);
+      clearSessionSnapshot();
       alert('You have been kicked from the sector by the admin.');
     };
 
     const handleRekeyRequired = () => {
       setSession(null);
       setMessages([]);
+      clearSessionSnapshot();
       alert('The sector has been re-keyed by the admin. You must rejoin with the new passphrase.');
     };
 
     socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
     socket.on('receive_message', handleReceiveMessage);
     socket.on('message_history', handleMessageHistory);
     socket.on('active_users', handleActiveUsers);
@@ -387,8 +505,12 @@ export default function App() {
     socket.on('kicked_from_room', handleKicked);
     socket.on('rekey_required', handleRekeyRequired);
 
+    loadPersistedSession().catch((err) => console.error('Persistence bootstrap failed:', err));
+
     return () => {
+      cancelled = true;
       socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
       socket.off('receive_message', handleReceiveMessage);
       socket.off('message_history', handleMessageHistory);
       socket.off('active_users', handleActiveUsers);
@@ -400,7 +522,30 @@ export default function App() {
       socket.off('kicked_from_room', handleKicked);
       socket.off('rekey_required', handleRekeyRequired);
     };
-  }, [session]);
+  }, []);
+
+  useEffect(() => {
+    if (!session) return;
+
+    const key = getSessionStorageId(session.username, session.roomId);
+    const cached = localStorage.getItem(key);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as Message[];
+        setMessages((prev) => mergeMessagesById(prev, parsed));
+      } catch {
+        // ignore cache parse issues
+      }
+    }
+
+    saveSessionSnapshot({ username: session.username, roomId: session.roomId, passphrase });
+  }, [session, passphrase]);
+
+  useEffect(() => {
+    const active = sessionRef.current;
+    if (!active) return;
+    persistRoomMessages(active, messages);
+  }, [messages]);
 
   const validateAlphanumeric = (str: string) => {
     return ALPHANUMERIC_REGEX.test(str);
@@ -475,20 +620,41 @@ export default function App() {
 
     setIsJoining(true);
     try {
-      const key = await deriveKey(passphrase, roomId);
-      
-      socket.emit('join_room', { roomId: roomId.trim(), username: username.trim(), action: authMode }, (response: any) => {
+      const trimmedRoom = roomId.trim();
+      const trimmedUser = username.trim();
+      const key = await deriveKey(passphrase, trimmedRoom);
+      const identity = await getOrCreateIdentity();
+      const timestamp = Date.now();
+      const nonce = crypto.randomUUID();
+      const proof = await signJoinProof(identity, trimmedRoom, trimmedUser, timestamp, nonce);
+
+      socket.emit('join_room', {
+        roomId: trimmedRoom,
+        username: trimmedUser,
+        action: authMode,
+        identity: {
+          deviceId: identity.deviceId,
+          publicKeyJwk: identity.publicKeyJwk,
+          timestamp,
+          nonce,
+          proof,
+        },
+      }, (response: any) => {
         if (response && !response.success) {
           setJoinError(response.error || 'Failed to join room.');
           setIsJoining(false);
         } else {
           setSession({
-            username: username.trim(),
-            roomId: roomId.trim(),
+            username: trimmedUser,
+            roomId: trimmedRoom,
             passphraseKey: key,
             isOwner: response.isOwner,
+            devicePseudonym: response?.pseudonym,
           });
+          saveSessionSnapshot({ username: trimmedUser, roomId: trimmedRoom, passphrase });
           getFingerprint(key).then(setFingerprint);
+          appendSystemLog('[YOU] HAS ENTERED THE SECTOR');
+          setShowWelcome(false);
           setIsJoining(false);
         }
       });
@@ -547,7 +713,7 @@ export default function App() {
     setNewMessage('');
     if (isTyping) {
       setIsTyping(false);
-      socket.emit('typing', { roomId: session.roomId, username: session.username, isTyping: false });
+      socket.emit('typing', { roomId: session.roomId, isTyping: false });
     }
 
     await sendMessage(textToSend, 'text');
@@ -557,15 +723,19 @@ export default function App() {
     setNewMessage(e.target.value);
     if (!isTyping && session) {
       setIsTyping(true);
-      socket.emit('typing', { roomId: session.roomId, username: session.username, isTyping: true });
+      socket.emit('typing', { roomId: session.roomId, isTyping: true });
       setTimeout(() => {
         setIsTyping(false);
-        socket.emit('typing', { roomId: session.roomId, username: session.username, isTyping: false });
+        socket.emit('typing', { roomId: session.roomId, isTyping: false });
       }, 2000);
     }
   };
 
   const handleLeave = () => {
+    clearSessionSnapshot();
+    if (session) {
+      localStorage.removeItem(getSessionStorageId(session.username, session.roomId));
+    }
     setSession(null);
     setMessages([]);
     setUsername('');
