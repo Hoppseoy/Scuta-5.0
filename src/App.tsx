@@ -118,6 +118,8 @@ export default function App() {
   } | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const canTransmit = Boolean(session) && (session?.isOwner || !roomSettings.isBroadcastOnly);
   const sessionRef = useRef<UserSession | null>(null);
 
   const scrollToBottom = () => {
@@ -656,7 +658,7 @@ export default function App() {
   };
 
   const sendMessage = async (content: string, type: 'text' | 'image' | 'audio' = 'text') => {
-    if (!session) return;
+    if (!session || !canTransmit) return;
 
     try {
       const encryptedText = await encryptMessage(content, session.passphraseKey);
@@ -697,7 +699,7 @@ export default function App() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !session) return;
+    if (!newMessage.trim() || !session || !canTransmit) return;
 
     const textToSend = newMessage.trim();
     setNewMessage('');
@@ -710,6 +712,11 @@ export default function App() {
   };
 
   const handleTyping = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canTransmit || !session) {
+      setNewMessage('');
+      return;
+    }
+
     setNewMessage(e.target.value);
     if (!isTyping && session) {
       setIsTyping(true);
@@ -720,6 +727,16 @@ export default function App() {
       }, 2000);
     }
   };
+
+  useEffect(() => {
+    if (canTransmit || !session) return;
+
+    setNewMessage('');
+    if (isTyping) {
+      setIsTyping(false);
+      socket.emit('typing', { roomId: session.roomId, isTyping: false });
+    }
+  }, [canTransmit, isTyping, session]);
 
   const handleLeave = () => {
     clearSessionSnapshot();
@@ -1652,14 +1669,15 @@ export default function App() {
                 handleSendMessage(e);
               }
             }}
-            placeholder="Transmit encrypted payload..."
+            placeholder={canTransmit ? 'Transmit encrypted payload...' : 'Broadcast-only mode: only sector admin can transmit.'}
+            disabled={!canTransmit}
             className="w-full bg-zinc-950 border border-zinc-800 text-zinc-100 rounded-2xl pl-5 pr-16 py-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all resize-none min-h-[60px] max-h-[200px] shadow-inner"
             rows={1}
             style={{ height: 'auto' }}
           />
           <button
             type="submit"
-            disabled={!newMessage.trim() || !isConnected}
+            disabled={!newMessage.trim() || !isConnected || !canTransmit}
             className="absolute right-2 bottom-2 p-3 bg-emerald-500 text-zinc-950 rounded-xl hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
           >
             <Send className="w-5 h-5" />
@@ -1675,4 +1693,3 @@ export default function App() {
     </div>
   );
 }
-
