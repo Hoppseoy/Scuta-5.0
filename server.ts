@@ -1,5 +1,4 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import Database from 'better-sqlite3';
@@ -15,6 +14,10 @@ if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir);
 }
 const db = new Database(path.join(dbDir, 'chat.db'));
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('temp_store = MEMORY');
+db.pragma('busy_timeout = 5000');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS messages (
@@ -25,6 +28,8 @@ db.exec(`
     timestamp INTEGER NOT NULL
   );
 `);
+
+db.exec('CREATE INDEX IF NOT EXISTS idx_messages_room_timestamp ON messages(roomId, timestamp)');
 
 for (const migration of [
   `ALTER TABLE messages ADD COLUMN type TEXT DEFAULT 'text'`,
@@ -40,6 +45,7 @@ for (const migration of [
 const insertMessage = db.prepare('INSERT INTO messages (id, roomId, sender, encryptedText, timestamp, type, ttl) VALUES (?, ?, ?, ?, ?, ?, ?)');
 const getMessagesByRoom = db.prepare('SELECT * FROM messages WHERE roomId = ? ORDER BY timestamp ASC');
 const deleteMessage = db.prepare('DELETE FROM messages WHERE id = ?');
+const deleteMessagesByRoom = db.prepare('DELETE FROM messages WHERE roomId = ?');
 
 const ROOM_ID_REGEX = /^[a-zA-Z0-9]+$/;
 const USERNAME_REGEX = /^[a-zA-Z0-9]+$/;
@@ -186,11 +192,13 @@ function unwrapFromStorage(stored: string, key?: Buffer): string | null {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number.parseInt(process.env.PORT || '3000', 10);
   const httpServer = createServer(app);
   const allowedOrigins = parseAllowedOrigins();
 
   const io = new Server(httpServer, {
+    serveClient: false,
+    transports: ['websocket', 'polling'],
     cors: {
       origin: allowedOrigins.length === 1 && allowedOrigins[0] === '*' ? '*' : allowedOrigins,
     },
@@ -530,7 +538,7 @@ async function startServer() {
       }
       if (roomOwners.get(actor.roomId) === actor.username) {
         try {
-          db.prepare('DELETE FROM messages WHERE roomId = ?').run(actor.roomId);
+          deleteMessagesByRoom.run(actor.roomId);
           destroyRoomStorageKey(actor.roomId);
           io.to(actor.roomId).emit('room_panicked');
         } catch (err) {
@@ -576,7 +584,7 @@ async function startServer() {
       }
       if (roomOwners.get(actor.roomId) === actor.username) {
         try {
-          db.prepare('DELETE FROM messages WHERE roomId = ?').run(actor.roomId);
+          deleteMessagesByRoom.run(actor.roomId);
           destroyRoomStorageKey(actor.roomId);
           getRoomStorageKey(actor.roomId);
         } catch (err) {
@@ -598,7 +606,7 @@ async function startServer() {
 
       if (owner === username && settings?.burnOnExit) {
         try {
-          db.prepare('DELETE FROM messages WHERE roomId = ?').run(roomId);
+          deleteMessagesByRoom.run(roomId);
           destroyRoomStorageKey(roomId);
           io.to(roomId).emit('room_panicked');
           roomUsers.delete(roomId);
@@ -636,10 +644,25 @@ async function startServer() {
   });
 
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static('dist'));
+    app.use(express.static('dist', {
+      index: false,
+      maxAge: '1y',
+      immutable: true,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('index.html')) {
+          res.setHeader('Cache-Control', 'no-store');
+        }
+      },
+    }));
+
+    app.get('/', (_req, res) => {
+      res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
+    });
+
     app.get('*', (_req, res) => {
       res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
     });
@@ -651,3 +674,13 @@ async function startServer() {
 }
 
 startServer();
+
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => {
+    try {
+      db.close();
+    } finally {
+      process.exit(0);
+    }
+  });
+}

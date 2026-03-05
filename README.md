@@ -119,7 +119,7 @@ Scuta requires a platform that supports long-running Node processes and WebSocke
 1. Push this repository to GitHub.
 2. Create a **Web Service** on Render and connect the repo.
 3. Use:
-   - **Build command:** `npm install && npm run build`
+   - **Build command:** `npm ci && npm run build && npm prune --omit=dev`
    - **Start command:** `npm run start`
 4. Set any required environment variables.
 
@@ -127,7 +127,8 @@ Scuta requires a platform that supports long-running Node processes and WebSocke
 1. Push this repository to GitHub.
 2. Create a Railway project from the repository.
 3. Ensure the service uses `npm run start` and exposes a public domain.
-4. Set environment variables in Railway project settings.
+4. Use a build command like `npm ci && npm run build && npm prune --omit=dev` to reduce free-tier runtime memory footprint.
+5. Set environment variables in Railway project settings.
 
 ### Example origin allowlist
 ```bash

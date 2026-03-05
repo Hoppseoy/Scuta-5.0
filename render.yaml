@@ -3,7 +3,7 @@ services:
     name: scuta-chat
     env: node
     plan: free
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci && npm run build && npm prune --omit=dev
     startCommand: npm run start
     envVars:
       - key: NODE_ENV
