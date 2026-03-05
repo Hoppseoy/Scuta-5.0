@@ -78,6 +78,16 @@ type EnrollmentRecord = {
   enrolledAt: number;
 };
 
+type CanonicalMessage = {
+  id: string;
+  roomId: string;
+  sender: string;
+  encryptedText: string;
+  timestamp: number;
+  type?: string;
+  ttl?: number;
+};
+
 function obfuscate(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex').slice(0, 12);
 }
@@ -252,6 +262,34 @@ async function startServer() {
     return true;
   };
 
+  const emitSystemLog = (roomId: string, content: string) => {
+    const systemMessage: CanonicalMessage = {
+      id: `system-${crypto.randomUUID()}`,
+      roomId,
+      sender: 'SYSTEM',
+      encryptedText: content,
+      timestamp: Date.now(),
+      type: 'system',
+      ttl: 0,
+    };
+
+    try {
+      insertMessage.run(
+        systemMessage.id,
+        systemMessage.roomId,
+        systemMessage.sender,
+        systemMessage.encryptedText,
+        systemMessage.timestamp,
+        systemMessage.type,
+        0
+      );
+    } catch (err) {
+      console.error('Failed to save system log:', err);
+    }
+
+    io.to(roomId).emit('receive_message', systemMessage);
+  };
+
   app.set('trust proxy', true);
 
   app.use((req, res, next) => {
@@ -384,6 +422,8 @@ async function startServer() {
         .filter((msg: any) => Boolean(msg.encryptedText));
       socket.emit('message_history', history);
 
+      emitSystemLog(roomId, `[${username}] HAS ENTERED THE SECTOR`);
+
       if (callback) callback({ success: true, isOwner, pseudonym: obfuscate(username) });
     });
 
@@ -427,7 +467,7 @@ async function startServer() {
         console.error('Failed to save message:', err);
       }
 
-      socket.to(actor.roomId).emit('receive_message', canonicalMessage);
+      io.to(actor.roomId).emit('receive_message', canonicalMessage);
 
       if (canonicalMessage.ttl && canonicalMessage.ttl > 0) {
         setTimeout(() => {
@@ -580,6 +620,7 @@ async function startServer() {
             }
           }
           io.to(roomId).emit('active_users', usersInRoom);
+          emitSystemLog(roomId, `[${username}] HAS EXITED THE SECTOR`);
         }
       }
 
