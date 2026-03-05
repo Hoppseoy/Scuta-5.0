@@ -818,7 +818,7 @@ export default function App() {
 
   if (showWelcome) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 font-sans text-zinc-100 relative overflow-hidden">
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-6 font-sans text-zinc-100 relative overflow-hidden">
         {/* Animated Grid Background */}
         <div className="absolute inset-0 z-0 opacity-20"
              style={{
@@ -893,70 +893,121 @@ export default function App() {
           style={{
             transform: `translate(${mousePosition.x * 0.2}px, ${mousePosition.y * 0.2}px)`
           }}
-          className="max-w-2xl w-full text-center z-10"
+          className="max-w-6xl w-full z-10"
         >
-          <motion.div 
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.2, duration: 0.8, ease: "easeOut" }}
-            className="flex justify-center mb-8"
-          >
-            <div className="relative group">
+          <div className="grid lg:grid-cols-[1.2fr,0.8fr] gap-8 items-stretch">
+            <div className="text-left rounded-3xl border border-zinc-800/70 bg-zinc-900/45 backdrop-blur-xl p-8 sm:p-10 shadow-2xl relative overflow-hidden">
+              <div className="absolute inset-0 pointer-events-none bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent" />
               <motion.div 
-                animate={{ rotate: 360 }}
-                transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-                className="absolute inset-0 bg-emerald-500 blur-2xl opacity-20 rounded-full group-hover:opacity-40 transition-opacity duration-700" 
-              />
-              <Shield className="w-24 h-24 text-emerald-500 relative z-10 drop-shadow-[0_0_15px_rgba(212,170,125,0.5)] group-hover:scale-110 transition-transform duration-500" strokeWidth={1.5} />
-            </div>
-          </motion.div>
-          <h1 className="text-6xl sm:text-8xl font-bold tracking-tighter mb-6 text-transparent bg-clip-text bg-gradient-to-b from-white to-zinc-500 drop-shadow-2xl">
-            SCUTA
-          </h1>
-          <p className="text-2xl sm:text-3xl text-zinc-200 mb-2 font-semibold tracking-wide drop-shadow-md">
-            Impenetrable Messaging.
-          </p>
-          <p className="text-lg sm:text-xl text-zinc-400 mb-8 font-light tracking-wide">
-            Comms encrypted with military-grade obfuscation.
-          </p>
-          
-          <div className="grid sm:grid-cols-3 gap-6 mb-12 text-left">
-            <motion.div 
-              whileHover={{ y: -5, scale: 1.02 }}
-              className="bg-zinc-900/50 border border-zinc-800/50 p-6 rounded-2xl backdrop-blur-sm shadow-xl hover:border-emerald-500/30 transition-colors"
-            >
-              <Lock className="w-6 h-6 text-emerald-500 mb-4" />
-              <h3 className="font-semibold mb-2">Zero Knowledge</h3>
-              <p className="text-sm text-zinc-500">End-to-end AES-GCM encryption. Keys never leave your device.</p>
-            </motion.div>
-            <motion.div 
-              whileHover={{ y: -5, scale: 1.02 }}
-              className="bg-zinc-900/50 border border-zinc-800/50 p-6 rounded-2xl backdrop-blur-sm shadow-xl hover:border-emerald-500/30 transition-colors"
-            >
-              <ShieldAlert className="w-6 h-6 text-emerald-500 mb-4" />
-              <h3 className="font-semibold mb-2">Untraceable</h3>
-              <p className="text-sm text-zinc-500">No personal data required. Ephemeral identities per room.</p>
-            </motion.div>
-            <motion.div 
-              whileHover={{ y: -5, scale: 1.02 }}
-              className="bg-zinc-900/50 border border-zinc-800/50 p-6 rounded-2xl backdrop-blur-sm shadow-xl hover:border-emerald-500/30 transition-colors"
-            >
-              <MessageSquare className="w-6 h-6 text-emerald-500 mb-4" />
-              <h3 className="font-semibold mb-2">Persistent</h3>
-              <p className="text-sm text-zinc-500">Encrypted payloads remain available for room members.</p>
-            </motion.div>
-          </div>
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ delay: 0.2, duration: 0.8, ease: "easeOut" }}
+                className="flex items-center gap-4 mb-8"
+              >
+                <div className="relative group">
+                  <motion.div 
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+                    className="absolute inset-0 bg-emerald-500 blur-2xl opacity-20 rounded-full group-hover:opacity-40 transition-opacity duration-700" 
+                  />
+                  <Shield className="w-14 h-14 text-emerald-500 relative z-10 drop-shadow-[0_0_15px_rgba(16,185,129,0.45)]" strokeWidth={1.5} />
+                </div>
+                <div>
+                  <p className="text-xs tracking-[0.3em] uppercase text-zinc-500 mb-1">Secure Operations Relay</p>
+                  <h1 className="text-5xl sm:text-6xl font-bold tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-zinc-500">
+                    SCUTA
+                  </h1>
+                </div>
+              </motion.div>
 
-          <button
-            onClick={() => setShowWelcome(false)}
-            className="group relative inline-flex items-center justify-center px-8 py-4 text-sm font-semibold text-black bg-emerald-500 rounded-full hover:bg-emerald-400 transition-all hover:scale-105 active:scale-95 overflow-hidden"
-          >
-            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
-            <span className="relative z-10 flex items-center">
-              INITIALIZE CONNECTION
-              <ChevronRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
-            </span>
-          </button>
+              <p className="text-2xl sm:text-3xl text-zinc-200 mb-2 font-semibold tracking-tight">
+                Impenetrable Messaging.
+              </p>
+              <p className="text-base sm:text-lg text-zinc-400 mb-8 max-w-xl">
+                Coordinate high-trust comms with zero-knowledge encryption, volatile identity, and room-level operational control.
+              </p>
+
+              <div className="grid sm:grid-cols-3 gap-4 text-left mb-8">
+                {[{
+                  icon: Lock,
+                  title: 'Zero Knowledge',
+                  copy: 'AES-GCM encryption with keys kept entirely on your device.'
+                }, {
+                  icon: ShieldAlert,
+                  title: 'Stealth Identity',
+                  copy: 'No profile baggage. Identity is temporary and room-scoped.'
+                }, {
+                  icon: MessageSquare,
+                  title: 'Mission Memory',
+                  copy: 'Encrypted messages persist for authorized room participants.'
+                }].map((item) => (
+                  <motion.div
+                    key={item.title}
+                    whileHover={{ y: -4 }}
+                    className="rounded-2xl border border-zinc-800/70 bg-zinc-950/45 p-4"
+                  >
+                    <item.icon className="w-5 h-5 text-emerald-500 mb-3" />
+                    <h3 className="font-semibold mb-1 text-sm">{item.title}</h3>
+                    <p className="text-xs text-zinc-500 leading-relaxed">{item.copy}</p>
+                  </motion.div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => setShowWelcome(false)}
+                className="group relative inline-flex items-center justify-center px-8 py-4 text-sm font-semibold text-black bg-emerald-500 rounded-full hover:bg-emerald-400 transition-all hover:scale-105 active:scale-95 overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
+                <span className="relative z-10 flex items-center">
+                  ENTER SECURE BRIEFING
+                  <ChevronRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+                </span>
+              </button>
+            </div>
+
+            <div className="rounded-3xl border border-zinc-800/70 bg-zinc-900/35 backdrop-blur-xl p-6 sm:p-8 shadow-2xl">
+              <div className="flex items-center justify-between mb-6">
+                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Live Capability Snapshot</p>
+                <div className="flex items-center text-emerald-400 text-xs gap-2">
+                  <Radio className="w-4 h-4" />
+                  ONLINE
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-zinc-800/70 bg-zinc-950/60 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-zinc-500 uppercase tracking-widest">Encryption Tunnel</span>
+                    <span className="text-xs text-emerald-400">AES-GCM</span>
+                  </div>
+                  <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <motion.div className="h-full bg-emerald-500" initial={{ width: '0%' }} animate={{ width: '92%' }} transition={{ duration: 1.2, delay: 0.3 }} />
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-800/70 bg-zinc-950/60 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-zinc-500 uppercase tracking-widest">Identity Masking</span>
+                    <span className="text-xs text-emerald-400">ACTIVE</span>
+                  </div>
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4, 5].map((bar) => (
+                      <motion.div key={bar} className="h-8 flex-1 rounded-md bg-emerald-500/70" initial={{ opacity: 0.15 }} animate={{ opacity: [0.15, 0.8, 0.3] }} transition={{ duration: 1.6, repeat: Infinity, delay: bar * 0.12 }} />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-800/70 bg-zinc-950/60 p-4">
+                  <p className="text-xs text-zinc-500 uppercase tracking-widest mb-3">Operational Rules</p>
+                  <div className="space-y-2 text-sm text-zinc-300">
+                    <div className="flex items-center justify-between"><span>Room key never transmitted</span><span className="text-emerald-400">✓</span></div>
+                    <div className="flex items-center justify-between"><span>Identity proof on join</span><span className="text-emerald-400">✓</span></div>
+                    <div className="flex items-center justify-between"><span>Instant lock + decoy mode</span><span className="text-emerald-400">✓</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </motion.div>
       </div>
     );
