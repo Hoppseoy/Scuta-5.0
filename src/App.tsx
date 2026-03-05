@@ -148,19 +148,6 @@ export default function App() {
     localStorage.setItem(key, JSON.stringify(nextMessages.slice(-400)));
   };
 
-  const appendSystemLog = (content: string) => {
-    setMessages((prev) => {
-      const next = [...prev, {
-        id: `system-${crypto.randomUUID()}`,
-        sender: 'SYSTEM',
-        text: content,
-        timestamp: Date.now(),
-        type: 'text',
-      }];
-      return next;
-    });
-  };
-
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       setMousePosition({
@@ -361,7 +348,6 @@ export default function App() {
         }
 
         setSession((prev) => prev ? { ...prev, isOwner: Boolean(response?.isOwner), devicePseudonym: response?.pseudonym } : prev);
-        appendSystemLog('[YOU] HAS ENTERED THE SECTOR');
       });
     };
 
@@ -377,31 +363,43 @@ export default function App() {
       setIsConnected(false);
     };
 
+    const materializeMessage = async (data: any, key: CryptoKey): Promise<Message | null> => {
+      try {
+        const isSystem = data.type === 'system' || data.sender === 'SYSTEM';
+        const text = isSystem ? data.encryptedText : await decryptMessage(data.encryptedText, key);
+        const ttlSeconds = Number(data.ttl) || 0;
+
+        return {
+          id: data.id,
+          sender: data.sender,
+          text,
+          timestamp: data.timestamp,
+          type: data.type,
+          ttl: ttlSeconds > 0 ? ttlSeconds : undefined,
+          expiresAt: ttlSeconds > 0 ? data.timestamp + ttlSeconds * 1000 : undefined,
+        };
+      } catch (err) {
+        console.error('Failed to materialize message:', err);
+        return null;
+      }
+    };
+
     const handleReceiveMessage = async (data: any) => {
       const active = sessionRef.current;
       if (!active || data.roomId !== active.roomId) return;
 
-      try {
-        const decryptedText = await decryptMessage(data.encryptedText, active.passphraseKey);
-        const newMsg: Message = {
-          id: data.id,
-          sender: data.sender,
-          text: decryptedText,
-          timestamp: data.timestamp,
-        };
+      const newMsg = await materializeMessage(data, active.passphraseKey);
+      if (!newMsg) return;
 
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === newMsg.id)) return prev;
-          if (soundEnabledRef.current && data.sender !== active.username) {
-            playTacticalBeep();
-          }
-          const next = [...prev, newMsg];
-          persistRoomMessages(active, next);
-          return next;
-        });
-      } catch (err) {
-        console.error('Failed to decrypt message:', err);
-      }
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === newMsg.id)) return prev;
+        if (soundEnabledRef.current && data.sender !== active.username) {
+          playTacticalBeep();
+        }
+        const next = [...prev, newMsg];
+        persistRoomMessages(active, next);
+        return next;
+      });
     };
 
     const handleMessageHistory = async (history: any[]) => {
@@ -410,16 +408,9 @@ export default function App() {
 
       const decryptedMessages: Message[] = [];
       for (const data of history) {
-        try {
-          const decryptedText = await decryptMessage(data.encryptedText, active.passphraseKey);
-          decryptedMessages.push({
-            id: data.id,
-            sender: data.sender,
-            text: decryptedText,
-            timestamp: data.timestamp,
-          });
-        } catch (err) {
-          console.error('Failed to decrypt history message:', err);
+        const hydrated = await materializeMessage(data, active.passphraseKey);
+        if (hydrated) {
+          decryptedMessages.push(hydrated);
         }
       }
 
@@ -653,7 +644,6 @@ export default function App() {
           });
           saveSessionSnapshot({ username: trimmedUser, roomId: trimmedRoom, passphrase });
           getFingerprint(key).then(setFingerprint);
-          appendSystemLog('[YOU] HAS ENTERED THE SECTOR');
           setShowWelcome(false);
           setIsJoining(false);
         }
