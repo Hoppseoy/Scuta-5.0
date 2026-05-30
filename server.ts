@@ -50,6 +50,10 @@ const deleteMessagesByRoom = db.prepare('DELETE FROM messages WHERE roomId = ?')
 const ROOM_ID_REGEX = /^[a-zA-Z0-9]+$/;
 const USERNAME_REGEX = /^[a-zA-Z0-9]+$/;
 const NONCE_WINDOW_MS = 90_000;
+const MAX_FIELD_LENGTH = 64;
+const MAX_ENCRYPTED_TEXT_LENGTH = 100_000;
+const ALLOWED_MESSAGE_TYPES = new Set(['text', 'image', 'audio']);
+const MAX_TTL_SECONDS = 86_400;
 
 const SECURITY_HEADERS: Record<string, string> = {
   'X-Content-Type-Options': 'nosniff',
@@ -282,11 +286,13 @@ async function startServer() {
     };
 
     try {
+      const roomKey = getRoomStorageKey(roomId);
+      const wrappedText = wrapForStorage(systemMessage.encryptedText, roomKey);
       insertMessage.run(
         systemMessage.id,
         systemMessage.roomId,
         systemMessage.sender,
-        systemMessage.encryptedText,
+        wrappedText,
         systemMessage.timestamp,
         systemMessage.type,
         0
@@ -298,7 +304,7 @@ async function startServer() {
     io.to(roomId).emit('receive_message', systemMessage);
   };
 
-  app.set('trust proxy', true);
+  app.set('trust proxy', 1);
 
   app.use((req, res, next) => {
     for (const [header, value] of Object.entries(SECURITY_HEADERS)) {
@@ -327,7 +333,9 @@ async function startServer() {
   });
 
   io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('User connected:', socket.id);
+    }
 
     socket.use(([eventName], next) => {
       if (!rateLimitSocketEvent(socket.id)) {
@@ -346,7 +354,12 @@ async function startServer() {
         identity: IdentityPayload;
       };
 
-      if (!ROOM_ID_REGEX.test(roomId) || !USERNAME_REGEX.test(username)) {
+      if (
+        !ROOM_ID_REGEX.test(roomId)
+        || !USERNAME_REGEX.test(username)
+        || roomId.length > MAX_FIELD_LENGTH
+        || username.length > MAX_FIELD_LENGTH
+      ) {
         if (callback) callback({ success: false, error: 'Invalid room or username format.' });
         return;
       }
@@ -418,7 +431,9 @@ async function startServer() {
         isOwner = true;
       }
 
-      console.log(`User ${username} (${socket.id}) joined room ${roomId}. Owner: ${isOwner}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`User ${obfuscate(username)} joined room ${obfuscate(roomId)}. Owner: ${isOwner}`);
+      }
 
       io.to(roomId).emit('active_users', usersInRoom);
       socket.emit('settings_updated', roomSettings.get(roomId));
@@ -446,6 +461,22 @@ async function startServer() {
         return;
       }
 
+      if (
+        typeof data.id !== 'string'
+        || data.id.length < 1
+        || data.id.length > 128
+        || typeof data.encryptedText !== 'string'
+        || data.encryptedText.length < 1
+        || data.encryptedText.length > MAX_ENCRYPTED_TEXT_LENGTH
+        || !Number.isFinite(data.timestamp)
+      ) {
+        auditDenied('send_message', actor, 'invalid payload');
+        return;
+      }
+
+      const messageType = typeof data.type === 'string' && ALLOWED_MESSAGE_TYPES.has(data.type) ? data.type : 'text';
+      const messageTtl = Number.isFinite(data.ttl) && data.ttl > 0 && data.ttl <= MAX_TTL_SECONDS ? data.ttl : 0;
+
       const settings = roomSettings.get(actor.roomId);
       const owner = roomOwners.get(actor.roomId);
       if (settings?.isBroadcastOnly && actor.username !== owner) {
@@ -454,7 +485,11 @@ async function startServer() {
       }
 
       const canonicalMessage = {
-        ...data,
+        id: data.id,
+        encryptedText: data.encryptedText,
+        timestamp: data.timestamp,
+        type: messageType,
+        ttl: messageTtl,
         roomId: actor.roomId,
         sender: actor.username,
       };
@@ -468,8 +503,8 @@ async function startServer() {
           canonicalMessage.sender,
           wrappedEncryptedText,
           canonicalMessage.timestamp,
-          canonicalMessage.type || 'text',
-          canonicalMessage.ttl || 0
+          canonicalMessage.type,
+          canonicalMessage.ttl
         );
       } catch (err) {
         console.error('Failed to save message:', err);
@@ -477,7 +512,7 @@ async function startServer() {
 
       io.to(actor.roomId).emit('receive_message', canonicalMessage);
 
-      if (canonicalMessage.ttl && canonicalMessage.ttl > 0) {
+      if (canonicalMessage.ttl > 0) {
         setTimeout(() => {
           try {
             deleteMessage.run(canonicalMessage.id);
@@ -519,8 +554,12 @@ async function startServer() {
         return;
       }
       if (roomOwners.get(actor.roomId) === actor.username) {
-        roomSettings.set(actor.roomId, data.settings);
-        io.to(actor.roomId).emit('settings_updated', data.settings);
+        const sanitized: RoomSettings = {
+          isBroadcastOnly: Boolean(data.settings?.isBroadcastOnly),
+          burnOnExit: Boolean(data.settings?.burnOnExit),
+        };
+        roomSettings.set(actor.roomId, sanitized);
+        io.to(actor.roomId).emit('settings_updated', sanitized);
       } else {
         auditDenied('update_settings', actor, 'owner required');
       }
