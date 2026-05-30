@@ -108,34 +108,152 @@ npm run start
 
 ---
 
-## 🌐 Deployment notes
+## 🌐 Deployment
 
-Scuta requires a platform that supports long-running Node processes and WebSockets.
+Scuta requires a platform that supports **long-running Node.js processes**, **persistent filesystem storage** (for SQLite), and **WebSocket connections**. Not all cloud platforms meet these requirements.
 
-- Good options: **Render**, **Railway**, VPS, or container platforms with WebSocket support.
-- In production, terminate TLS correctly and ensure forwarded protocol headers are set.
+### Platform compatibility
 
-### Render quick deploy
-1. Push this repository to GitHub.
-2. Create a **Web Service** on Render and connect the repo.
-3. Use:
+| Platform | Supported | Notes |
+|----------|-----------|-------|
+| **Render** | ✅ Yes | Recommended. Free tier available. `render.yaml` included. |
+| **Railway** | ✅ Yes | Easy setup. Free tier has memory limits — prune dev deps after build. |
+| **VPS / Docker** | ✅ Yes | Full control. Any Ubuntu/Debian VPS works. |
+| **Fly.io** | ✅ Yes | Supports persistent volumes and WebSockets. |
+| **Vercel** | ❌ No | Serverless only — no persistent filesystem, no long-running process, no WebSocket support. |
+| **Netlify** | ❌ No | Same limitations as Vercel. |
+| **GitHub Pages** | ❌ No | Static hosting only. |
+
+---
+
+### Environment variables
+
+Set these on whichever platform you deploy to:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NODE_ENV` | Yes | Set to `production`. Enables HTTPS enforcement, disables dev middleware. |
+| `SCUTA_ALLOWED_ORIGINS` | Yes (production) | Comma-separated list of allowed origins for CORS and Socket.IO. Example: `https://scuta.example.com`. If unset in production, all WebSocket connections will be rejected. |
+| `PORT` | No | Port to listen on. Defaults to `3000`. Most platforms set this automatically. |
+
+**Example:**
+```bash
+NODE_ENV=production
+SCUTA_ALLOWED_ORIGINS=https://your-app.onrender.com
+```
+
+> ⚠️ Never use a wildcard origin (`*`) in production. Always set `SCUTA_ALLOWED_ORIGINS` to your exact deployment URL.
+
+---
+
+### Render (recommended)
+
+Render is the recommended platform. A `render.yaml` is included in the repo — Render will detect it automatically.
+
+**One-click via render.yaml:**
+1. Push this repo to GitHub.
+2. Go to [render.com](https://render.com) → **New** → **Web Service** → connect your repo.
+3. Render auto-detects `render.yaml`. Review the settings and click **Deploy**.
+4. After the first deploy, go to **Environment** and set `SCUTA_ALLOWED_ORIGINS` to your Render URL (e.g. `https://scuta-chat.onrender.com`).
+
+**Manual setup (if not using render.yaml):**
+- **Environment:** Node
+- **Build command:** `npm ci && npm run build && npm prune --omit=dev`
+- **Start command:** `npm run start`
+- **Environment variables:** `NODE_ENV=production`, `SCUTA_ALLOWED_ORIGINS=https://<your-service>.onrender.com`
+
+> **Note on free tier:** Render free web services spin down after 15 minutes of inactivity and take ~30 seconds to cold-start. For always-on availability, upgrade to a paid instance.
+
+---
+
+### Railway
+
+1. Push this repo to GitHub.
+2. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo**.
+3. Select your repo. Railway will detect Node.js automatically.
+4. In **Settings**, set:
    - **Build command:** `npm ci && npm run build && npm prune --omit=dev`
    - **Start command:** `npm run start`
-4. Set any required environment variables.
+5. In **Variables**, add:
+   - `NODE_ENV` = `production`
+   - `SCUTA_ALLOWED_ORIGINS` = `https://<your-app>.railway.app`
+6. Go to **Settings → Networking** and generate a public domain.
 
-### Railway quick deploy
-1. Push this repository to GitHub.
-2. Create a Railway project from the repository.
-3. Ensure the service uses `npm run start` and exposes a public domain.
-4. Use a build command like `npm ci && npm run build && npm prune --omit=dev` to reduce free-tier runtime memory footprint.
-5. Set environment variables in Railway project settings.
+> **Note on free tier:** Railway's free tier has a monthly usage cap. Pruning dev dependencies after build (`npm prune --omit=dev`) significantly reduces runtime memory usage.
+
+---
+
+### Fly.io
+
+1. Install the [Fly CLI](https://fly.io/docs/hands-on/install-flyctl/) and log in: `fly auth login`
+2. From the repo root, run: `fly launch` — Fly will detect Node.js and generate a `fly.toml`.
+3. When prompted, choose a region close to your users and **do not** set up a Postgres database (Scuta uses SQLite).
+4. Add a persistent volume for the SQLite data directory:
+   ```bash
+   fly volumes create scuta_data --size 1
+   ```
+5. Edit the generated `fly.toml` to mount the volume:
+   ```toml
+   [mounts]
+     source = "scuta_data"
+     destination = "/app/data"
+   ```
+6. Set environment variables:
+   ```bash
+   fly secrets set NODE_ENV=production
+   fly secrets set SCUTA_ALLOWED_ORIGINS=https://<your-app>.fly.dev
+   ```
+7. Deploy: `fly deploy`
+
+---
+
+### VPS / Docker (self-hosted)
+
+For maximum control and privacy, run Scuta on your own server.
+
+**Direct Node.js (Ubuntu/Debian):**
+```bash
+# Install Node.js 20+
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Clone and build
+git clone https://github.com/your-username/Scuta-5.0.git
+cd Scuta-5.0
+npm ci && npm run build && npm prune --omit=dev
+
+# Run
+NODE_ENV=production SCUTA_ALLOWED_ORIGINS=https://yourdomain.com npm run start
+```
+
+Use a process manager like [PM2](https://pm2.keymetrics.io/) to keep it running:
+```bash
+npm install -g pm2
+NODE_ENV=production SCUTA_ALLOWED_ORIGINS=https://yourdomain.com pm2 start "npm run start" --name scuta
+pm2 save && pm2 startup
+```
+
+**With a reverse proxy (nginx):** Terminate TLS at nginx and proxy to `localhost:3000`. Ensure `proxy_set_header X-Forwarded-Proto https;` is set so Scuta's HTTPS enforcement works correctly.
+
+---
+
+### Post-deploy checklist
+
+After deploying to any platform:
+
+- [ ] Open `/api/health` — should return `{"status":"ok"}`.
+- [ ] Open the app in two separate browser sessions, join the same room, and confirm messages send and receive.
+- [ ] Verify the URL in the browser starts with `https://` (not `http://`).
+- [ ] Confirm `SCUTA_ALLOWED_ORIGINS` is set to your exact deployment URL (no trailing slash).
+
+---
 
 ### Example origin allowlist
 ```bash
-SCUTA_ALLOWED_ORIGINS="https://scuta.example,https://ops.example" npm run start
+SCUTA_ALLOWED_ORIGINS="https://scuta.example.com,https://ops.example.com" npm run start
 ```
 
-For production, prefer explicit origins (no wildcard) and ensure TLS termination forwards `X-Forwarded-Proto: https`.
+For production, always use explicit origins (never wildcard) and ensure your reverse proxy or platform forwards `X-Forwarded-Proto: https`.
 
 ---
 
