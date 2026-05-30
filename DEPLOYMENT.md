@@ -1,7 +1,5 @@
 # Deployment Guide
 
-I cannot directly deploy to your cloud account from this environment because it has no access to your Render/Railway credentials.
-
 ## Render (recommended)
 1. Push this branch to your Git provider.
 2. In Render, create a **Web Service** from this repo.
