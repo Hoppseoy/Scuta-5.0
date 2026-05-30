@@ -3,7 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { Message, UserSession } from './types';
 import { deriveKey, encryptMessage, decryptMessage, getFingerprint } from './utils/crypto';
 import { getOrCreateIdentity, signJoinProof } from './utils/identity';
-import { Lock, Send, User, Key, Hash, Shield, MessageSquare, LogOut, ShieldAlert, Trash2, AlertTriangle, ChevronRight, Users, Crown, AlertOctagon, Terminal, Clock, Camera, Mic, Settings, EyeOff, Radio, Volume2, VolumeX } from 'lucide-react';
+import { Lock, Send, User, Key, Hash, Shield, MessageSquare, LogOut, ShieldAlert, Trash2, AlertTriangle, ChevronRight, Users, Crown, AlertOctagon, Clock, Settings, Radio, Volume2, VolumeX } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 
